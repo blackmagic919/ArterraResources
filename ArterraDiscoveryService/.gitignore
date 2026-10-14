@@ -1,0 +1,8 @@
+# .NET build and test output
+[Bb]in/
+[Oo]bj/
+TestResults/
+
+# Local IDE settings
+*.csproj.user
+*.suo

@@ -1,0 +1,13 @@
+# OS and local editor state
+.DS_Store
+Thumbs.db
+.vs/
+.idea/
+*.user
+*.suo
+
+# Local environment credentials (keep example configuration trackable)
+.env
+.env.*
+!.env.example
+!.env.*.example
