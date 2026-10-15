@@ -1,5 +1,7 @@
+using Arterra.Game.Handlers;
 using Arterra.Game.Schemas;
-namespace Arterra.Game.Management.Auth;
+
+namespace Arterra.Game.Routing;
 
 public static class LoginEndpoints {
     public static void MapLogin(this IEndpointRouteBuilder endpoints) {

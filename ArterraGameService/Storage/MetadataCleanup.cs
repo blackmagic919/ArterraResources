@@ -4,7 +4,7 @@ using Amazon.Lambda.Serialization.SystemTextJson;
 using Amazon.S3;
 using Amazon.S3.Model;
 
-namespace Arterra.Game.Management.Storage;
+namespace Arterra.Game.Storage;
 
 // A separate Lambda entry point in the same deployment artifact. No HTTP/auth startup runs here.
 public sealed class MetadataCleanup {

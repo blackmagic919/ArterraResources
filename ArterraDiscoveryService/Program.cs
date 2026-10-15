@@ -1,6 +1,9 @@
+using Arterra.Game.Storage;
 using System.Net;
 using System.Runtime.InteropServices;
-using LiteNetLib;
+using Amazon.DynamoDBv2;
+using Arterra.Discovery.Storage;
+using Arterra.Discovery.Transport;
 
 int port = int.Parse(Environment.GetEnvironmentVariable("ARTERRA_UDP_PORT") ?? "9050");
 if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
@@ -14,26 +17,23 @@ using var termination = PosixSignalRegistration.Create(PosixSignal.SIGTERM, cont
     context.Cancel = true;
     shutdown.Cancel();
 });
-
-var listener = new EventBasedNetListener();
-// This is only a process/deployment scaffold. Session and introduction protocols are deferred.
-listener.ConnectionRequestEvent += request => request.Reject();
-var network = new NetManager(listener) { NatPunchEnabled = false, IPv6Enabled = false };
+using var database = new AmazonDynamoDBClient();
+var clock = TimeProvider.System;
+var tickets = new DynamoConnectionTicketStore(database, Required("TICKET_TABLE"), clock);
+var sessions = new DynamoDiscoverySessions(database, Required("SESSION_TABLE"), clock);
+var server = new DiscoveryServer(tickets, sessions, clock);
 
 try {
-    if (!network.Start(IPAddress.Any, IPAddress.IPv6Any, port))
-        throw new IOException($"Could not bind UDP port {port}.");
-
-    Console.WriteLine($"{DateTimeOffset.UtcNow:O} LiteNetLib {typeof(NetManager).Assembly.GetName().Version}: " +
-        $"placeholder listening on UDP {port}. Introduction handling is not implemented.");
-
+    server.Start(IPAddress.Any, port);
     while (!shutdown.IsCancellationRequested) {
-        network.PollEvents();
+        server.Tick();
         await Task.Delay(15, shutdown.Token);
     }
 } catch (OperationCanceledException) when (shutdown.IsCancellationRequested) {
     // Normal systemd shutdown.
 } finally {
-    network.Stop();
-    Console.WriteLine($"{DateTimeOffset.UtcNow:O} Discovery placeholder stopped.");
+    await server.StopAsync();
 }
+
+static string Required(string name) => Environment.GetEnvironmentVariable(name)
+    ?? throw new InvalidOperationException($"{name} is required.");

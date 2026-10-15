@@ -1,7 +1,8 @@
+using Arterra.Game.Handlers;
 using Arterra.Game.Schemas;
 using System.Security.Claims;
 
-namespace Arterra.Game.Management.Sessions;
+namespace Arterra.Game.Routing;
 
 public static class SessionEndpoints {
     public static void MapSessions(this IEndpointRouteBuilder endpoints) {
@@ -29,9 +30,11 @@ public static class SessionEndpoints {
         group.MapGet("/{id:guid}", async (Guid id, SessionService service, CancellationToken cancel) =>
             Results.Ok(await service.GetActiveAsync(id, cancel)));
 
-        // Authorizes discovery of the current connection details. UDP tickets and introductions are deferred.
-        group.MapPost("/{id:guid}/join", async (Guid id, SessionService service, CancellationToken cancel) =>
-            Results.Ok(await service.GetActiveAsync(id, cancel))).RequireAuthorization();
+        group.MapPost("/{id:guid}/host", async (Guid id, SessionService service, HttpContext context) =>
+            Results.Ok(await service.HostAsync(id, UserId(context), context.RequestAborted))).RequireAuthorization();
+
+        group.MapPost("/{id:guid}/join", async (Guid id, SessionService service, HttpContext context) =>
+            Results.Ok(await service.JoinAsync(id, UserId(context), context.RequestAborted))).RequireAuthorization();
 
         group.MapDelete("/{id:guid}", async (Guid id, SessionService service, HttpContext context) => {
             await service.DeleteAsync(id, UserId(context), context.RequestAborted);

@@ -1,9 +1,8 @@
 using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
-using Arterra.Game.Management.Auth;
 
-namespace Arterra.Game.Management.Storage;
+namespace Arterra.Game.Storage;
 
 public sealed class DynamoLoginTokenStore(IAmazonDynamoDB database, string table) : ILoginTokenStore {
     public async Task SaveAsync(string tokenHash, Guid userId, DateTimeOffset expiresAt, CancellationToken cancellationToken) {

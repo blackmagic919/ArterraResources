@@ -12,15 +12,15 @@ Each deployment creates a public-subnet VPC, one `t3.micro` EC2 instance, an Ela
 
 CDK constants and the systemd unit are defined in `lib/config.ts`. The .NET source lives in the sibling `../ArterraDiscoveryService/` directory. Build scripts, the release lock, downloaded dependency cache, and deployment artifacts remain under `ArterraDiscoveryCDK/`.
 
-The sibling `../ArterraGameService/` contains the Lambda HTTP/auth/session service. Each environment has an API Gateway HTTP API, an ACM certificate, a management Lambda, a metadata-cleanup Lambda, three DynamoDB tables, and a private S3 metadata bucket. The API Lambda is outside the VPC and requires no NAT gateway. See [the management API](../ArterraGameService/README.md) for requests, defaults, and the connectivity boundary.
+The sibling `../ArterraGameService/` contains the Lambda HTTP/auth/session service. Each environment has an API Gateway HTTP API, an ACM certificate, a management Lambda, a metadata-cleanup Lambda, four DynamoDB tables, and a private S3 metadata bucket. The API Lambda is outside the VPC and requires no NAT gateway. See [the management API](../ArterraGameService/README.md) for requests, defaults, and the connectivity boundary.
 
 ## Service scope
 
-The background .NET service loads LiteNetLib, binds UDP, rejects connection requests, and handles graceful shutdown. **It is a runnable deployment placeholder, not yet a NAT introduction server.** Peer matching, introduction messages, authenticated UDP tickets, and host heartbeat integration are deferred. Auth, session management, discovery queries, and metadata access run separately in the Game Service Lambda; sessions stay hidden until the future connectivity component confirms a live host. Global-table replication is not configured for this single-region deployment.
+The background .NET service authenticates single-use hosting/joining tickets, tracks connected hosts, renews session presence in DynamoDB, and introduces peers using LiteNetLib for direct game connections. No relay fallback is implemented. Auth, session management, ticket issuance, discovery queries, and metadata access run separately in the Game Service Lambda. See [the UDP protocol](../ArterraDiscoveryService/README.md) for client integration. Unity integration and real NAT playtesting remain to be done. Global-table replication is not configured for this single-region deployment.
 
-`litenetlib-release.json` pins release `2.1.4`, its GitHub release ID, and the source archive SHA-256. The build queries GitHub's release API for that exact tag and verifies the archive before extracting it into ignored `.cache/` storage. No upstream source is committed. To change versions, review the release and update all lock fields together.
+`litenetlib-release.json` pins release `2.1.4`, its GitHub release ID, and the source archive SHA-256. The build downloads that tag's archive directly from GitHub's codeload endpoint and verifies its SHA-256 before extracting it into ignored `.cache/` storage. Normal builds do not call the release API or need a GitHub token. The release ID records which release was reviewed; the archive checksum enforces the pinned content. No upstream source is committed. To change versions, query GitHub's release API for the desired tag, verify that it is a stable published release, and update all lock fields together after reviewing and hashing its archive.
 
-The Linux x64 self-contained .NET 8 application is built once in the pipeline synth step and published as a CDK asset for all stages. EC2 runs it with `systemd` as an unprivileged user. CDK's bootstrap and pipeline artifact buckets are infrastructure storage, independent of the deferred application configuration buckets.
+The Linux x64 self-contained .NET 8 application is built once in the pipeline synth step and published as a CDK asset for all stages. EC2 runs it with `systemd` as an unprivileged user. CDK's bootstrap and pipeline artifact buckets are infrastructure storage, independent of the session metadata bucket.
 
 ## Initial setup
 
@@ -46,7 +46,7 @@ By default, the stack creates a GitHub CodeConnections connection. CloudFormatio
 
 Alternatively, put an existing authorized connection ARN in the `context` object of `cdk.json` under `githubConnectionArn`. Commit this setting so both local deployment and the pipeline's self-mutation synth use the same connection. Do not configure it only through a temporary local `-c` argument.
 
-Commit the template and `package-lock.json` to `main`. Subsequent pushes trigger the self-updating pipeline. Alpha and Beta proceed automatically when deployment succeeds; Prod waits for approval. Deployment success currently checks that the placeholder process stays active through its startup check, not functional multiplayer behavior.
+Commit the template and `package-lock.json` to `main`. Subsequent pushes trigger the self-updating pipeline. Alpha and Beta proceed automatically when deployment succeeds; Prod waits for approval. Deployment success checks that the process stays active through its startup check; it does not replace a deployed multiplayer connectivity test.
 
 ## DNS setup
 
@@ -60,11 +60,11 @@ The pipeline stack creates a retained public hosted zone for `playarterra.com`. 
 
 After the pipeline stack creates the hosted zone, copy the four nameservers from its `NameServers` output into the domain's nameserver settings at GoDaddy. Keep registration at GoDaddy. If the domain already serves other records (such as email), copy those records into this hosted zone before switching nameservers. Do this before the first Game Service deployment completes: ACM DNS validation waits for these authoritative nameservers. Prod's API alias is created after its approval and deployment.
 
-The service stacks import the shared zone ID from the pipeline stack in `us-east-1`. Adding regions later will also require revisiting zone-ID sharing and regional routing. ACM provides HTTPS certificates for API Gateway; Caddy is not installed. EC2 retains its Elastic IP for UDP, which the management API returns as the connectivity endpoint. No API hostname points to EC2.
+The service stacks import the shared zone ID from the pipeline stack in `us-east-1`. Adding regions later will also require revisiting zone-ID sharing and regional routing. ACM provides HTTPS certificates for API Gateway; Caddy is not installed. GameService owns the Elastic IP and EC2 attaches it for UDP; the management API returns it as the connectivity endpoint. The EC2 stack now depends on GameService so its tables and instance permissions are available before startup. Moving the address from the old scaffold replaces its IP if already deployed. No API hostname points to EC2.
 
 ## Operations
 
-Each Game Service stack outputs `ApiUrl` and `DefaultApiUrl`. Lambda logs are in CloudWatch with one-week retention. The cleanup function logs separately. Tables and metadata buckets are retained on stack deletion. The pipeline builds two independent artifacts; EC2 still runs only the connectivity placeholder.
+Each Game Service stack outputs `ApiUrl` and `DefaultApiUrl`. Lambda logs are in CloudWatch with one-week retention. The cleanup function logs separately. Tables and metadata buckets are retained on stack deletion. The pipeline builds two independent artifacts; EC2 runs only the connectivity service, with session GetItem/UpdateItem and ticket DeleteItem permissions. It cannot read login tokens, identities, or metadata.
 
 Each service stack outputs `PublicIp`, `UdpPort`, and `InstanceId`. Connect through Session Manager and inspect:
 

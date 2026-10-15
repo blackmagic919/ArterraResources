@@ -1,9 +1,11 @@
+using Arterra.Game.Routing;
+using Arterra.Game.Authentication;
+using Arterra.Game.Handlers;
+using Arterra.Game.Providers;
 using Arterra.Game.Schemas;
+using Arterra.Game.Storage;
 using Amazon.DynamoDBv2;
 using Amazon.S3;
-using Arterra.Game.Management.Auth;
-using Arterra.Game.Management.Storage;
-using Arterra.Game.Management.Sessions;
 using Microsoft.AspNetCore.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -24,6 +26,8 @@ builder.Services.AddSingleton<ISessionStore>(services => new DynamoSessionStore(
 builder.Services.AddSingleton<ISessionMetadata>(services => new S3SessionMetadata(
     services.GetRequiredService<IAmazonS3>(), Required("METADATA_BUCKET")));
 builder.Services.AddSingleton(new NetworkEndpoint(Required("CONNECTIVITY_HOST"), int.Parse(Required("CONNECTIVITY_PORT"))));
+builder.Services.AddSingleton<IConnectionTicketStore>(services => new DynamoConnectionTicketStore(
+    services.GetRequiredService<IAmazonDynamoDB>(), Required("TICKET_TABLE"), services.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton<SessionService>();
 builder.Services.AddAuthentication(LoginAuthenticationHandler.SchemeName)
     .AddScheme<AuthenticationSchemeOptions, LoginAuthenticationHandler>(LoginAuthenticationHandler.SchemeName, _ => { });

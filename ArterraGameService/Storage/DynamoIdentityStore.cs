@@ -4,9 +4,8 @@ using System.Text;
 using System.Text.Json;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
-using Arterra.Game.Management.Auth;
 
-namespace Arterra.Game.Management.Storage;
+namespace Arterra.Game.Storage;
 
 public sealed class DynamoIdentityStore(IAmazonDynamoDB database, string table) : IIdentityStore {
     public async Task<Guid> GetOrCreateUserAsync(ExternalIdentity identity, CancellationToken cancellationToken) {

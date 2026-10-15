@@ -1,4 +1,5 @@
 import * as cdk from 'aws-cdk-lib';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -14,8 +15,15 @@ import * as path from 'node:path';
 import { domainName, hostedZoneExportName, port, unityProjectId } from './config';
 
 export class GameServiceStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, recordName: string, connectivityAddress: string) {
+  readonly sessions: dynamodb.Table;
+  readonly tickets: dynamodb.Table;
+  readonly address: ec2.CfnEIP;
+
+  constructor(scope: Construct, id: string, recordName: string) {
     super(scope, id);
+
+    // Both HTTP and EC2 use this address; placing it here keeps stack dependencies one-way.
+    this.address = new ec2.CfnEIP(this, 'PublicAddress', { domain: 'vpc' });
 
     const identities = new dynamodb.Table(this, 'Identities', {
       partitionKey: { name: 'identityKey', type: dynamodb.AttributeType.STRING },
@@ -33,6 +41,13 @@ export class GameServiceStack extends cdk.Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'expiresAt',
       stream: dynamodb.StreamViewType.OLD_IMAGE,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    this.sessions = sessions;
+    this.tickets = new dynamodb.Table(this, 'ConnectionTickets', {
+      partitionKey: { name: 'ticketHash', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiresAt',
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     const metadata = new s3.Bucket(this, 'SessionMetadata', {
@@ -57,15 +72,17 @@ export class GameServiceStack extends cdk.Stack {
         IDENTITY_TABLE: identities.tableName,
         LOGIN_TABLE: logins.tableName,
         SESSION_TABLE: sessions.tableName,
+        TICKET_TABLE: this.tickets.tableName,
         METADATA_BUCKET: metadata.bucketName,
         UNITY_PROJECT_ID: unityProjectId,
-        CONNECTIVITY_HOST: connectivityAddress,
+        CONNECTIVITY_HOST: this.address.ref,
         CONNECTIVITY_PORT: String(port),
       },
     });
     identities.grantReadWriteData(service);
     logins.grantReadWriteData(service);
     sessions.grantReadWriteData(service);
+    this.tickets.grant(service, 'dynamodb:PutItem');
     metadata.grantReadWrite(service);
 
     // TTL and explicit session deletion both remove the immutable published metadata.
@@ -73,7 +90,7 @@ export class GameServiceStack extends cdk.Stack {
     const cleanup = new lambda.Function(this, 'MetadataCleanup', {
       runtime: lambda.Runtime.DOTNET_8,
       architecture: lambda.Architecture.X86_64,
-      handler: 'Arterra.Game::Arterra.Game.Management.Storage.MetadataCleanup::HandleAsync',
+      handler: 'Arterra.Game::Arterra.Game.Storage.MetadataCleanup::HandleAsync',
       code,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,

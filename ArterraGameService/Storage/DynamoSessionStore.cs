@@ -2,13 +2,10 @@ using Arterra.Game.Schemas;
 using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
-using Arterra.Game.Management.Sessions;
 
-namespace Arterra.Game.Management.Storage;
+namespace Arterra.Game.Storage;
 
-public sealed class DynamoSessionStore(IAmazonDynamoDB database, string table, string metadataBucket, TimeProvider clock) : ISessionStore, ISessionPresence {
-    public static readonly TimeSpan HostLease = TimeSpan.FromSeconds(90);
-
+public sealed class DynamoSessionStore(IAmazonDynamoDB database, string table, string metadataBucket, TimeProvider clock) : ISessionStore {
     public async Task CreateAsync(SessionRecord session, CancellationToken cancellationToken) {
         await database.PutItemAsync(new PutItemRequest {
             TableName = table,
@@ -97,32 +94,6 @@ public sealed class DynamoSessionStore(IAmazonDynamoDB database, string table, s
                 ExpressionAttributeValues = new() {
                     [":owner"] = new AttributeValue(ownerId.ToString()),
                     [":publishing"] = new AttributeValue("publishing"),
-                },
-            }, cancellationToken);
-            return true;
-        } catch (ConditionalCheckFailedException) { return false; }
-    }
-
-    public async Task<bool> RenewAsync(Guid sessionId, Guid ownerId, NetworkEndpoint observedHost, CancellationToken cancellationToken) {
-        if (!System.Net.IPAddress.TryParse(observedHost.Host, out _) || observedHost.Port is < 1 or > 65535)
-            throw new ArgumentException("A valid observed UDP endpoint is required.");
-
-        var now = clock.GetUtcNow();
-        try {
-            await database.UpdateItemAsync(new UpdateItemRequest {
-                TableName = table,
-                Key = Key(sessionId),
-                UpdateExpression = "SET #status = :active, expiresAt = :expiry, hostIp = :ip, hostPort = :port",
-                ConditionExpression = "ownerId = :owner AND (#status = :ready OR #status = :active) AND expiresAt > :now",
-                ExpressionAttributeNames = new() { ["#status"] = "status" },
-                ExpressionAttributeValues = new() {
-                    [":owner"] = new AttributeValue(ownerId.ToString()),
-                    [":active"] = new AttributeValue("active"),
-                    [":ready"] = new AttributeValue("ready"),
-                    [":expiry"] = Number((now + HostLease).ToUnixTimeSeconds()),
-                    [":now"] = Number(now.ToUnixTimeSeconds()),
-                    [":ip"] = new AttributeValue(observedHost.Host),
-                    [":port"] = Number(observedHost.Port),
                 },
             }, cancellationToken);
             return true;

@@ -1,9 +1,11 @@
+using Arterra.Game.Providers;
 using Arterra.Game.Schemas;
+using Arterra.Game.Storage;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace Arterra.Game.Management.Auth;
+namespace Arterra.Game.Handlers;
 
 public sealed class LoginService(
     IEnumerable<IIdentityProvider> providers,

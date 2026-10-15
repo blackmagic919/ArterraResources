@@ -5,8 +5,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../ArterraDiscoveryCDK/.cache/litenetlib/LiteNetLib/LiteNetLib.csproj" />
+    <PackageReference Include="AWSSDK.DynamoDBv2" Version="4.0.107.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../ArterraGameService/Schemas/ConnectionSchemas.cs" Link="Schemas/ConnectionSchemas.cs" />
+    <Compile Include="../ArterraGameService/Schemas/NetworkEndpoint.cs" Link="Schemas/NetworkEndpoint.cs" />
+    <Compile Include="../ArterraGameService/Storage/IConnectionTicketStore.cs" Link="Authentication/IConnectionTicketStore.cs" />
+    <Compile Include="../ArterraGameService/Storage/DynamoConnectionTicketStore.cs" Link="Authentication/DynamoConnectionTicketStore.cs" />
   </ItemGroup>
 </Project>

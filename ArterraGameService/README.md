@@ -2,6 +2,16 @@
 
 .NET 8 management service hosted by Lambda behind an API Gateway HTTP API. This project has no LiteNetLib dependency and does not run sockets, NAT introductions, tunnels, or gameplay. `../ArterraDiscoveryService` remains the EC2 connectivity process.
 
+## Source layout
+
+- `Handlers/`: application operations (`LoginService`, `SessionService`).
+- `Routing/`: HTTP endpoint mappings.
+- `Providers/`: identity providers and their interface.
+- `Authentication/`: ASP.NET bearer-token authentication handler.
+- `Storage/`: persistence interfaces, implementations, and metadata cleanup.
+- `Schemas/`: API/data contracts and shared discovery messages.
+- `Program.cs`: dependency registration and application startup.
+
 ## Identity and login
 
 `POST /login` accepts exactly one provider credential:
@@ -41,7 +51,8 @@ Send `Authorization: Bearer <sessionToken>` on authenticated operations. A login
 | POST | `/sessions/{id}/complete` | Owner | Verify and publish uploaded metadata; session becomes ready |
 | GET | `/sessions?limit=20&cursor=<guid>` | Public | List active, unexpired sessions |
 | GET | `/sessions/{id}` | Public | Get an active session and signed metadata download URLs |
-| POST | `/sessions/{id}/join` | Login token | Authorize retrieval of current connection details |
+| POST | `/sessions/{id}/host` | Owner | Issue a single-use hosting ticket for a ready session |
+| POST | `/sessions/{id}/join` | Login token | Return the active session and a single-use joining ticket |
 | DELETE | `/sessions/{id}` | Owner | Remove the session; metadata cleanup follows asynchronously |
 | GET | `/health` | Public | Process health |
 
@@ -70,9 +81,11 @@ The one-hour pending lifetime covers uploading and waiting for the host connecti
 
 ### Connectivity boundary
 
-`ISessionPresence.RenewAsync` is the trusted boundary for the future EC2 component. It requires the authenticated owner and the **observed UDP endpoint**. Its DynamoDB implementation changes ready sessions to active and renews active sessions to a 90-second expiry. It cannot resurrect expired sessions. There is deliberately no public REST endpoint that marks a host alive.
+After completing metadata, the owner calls `POST /sessions/{id}/host`. It returns `{ ticket, expiresAt, discoveryEndpoint }`. The 60-second ticket authorizes one EC2 hosting connection. `/join` now returns `{ session, connection }`, where `connection` is the same ticket response shape for an authenticated joining user. Tickets contain 32 random bytes, are stored only as SHA-256 hashes in `ConnectionTickets`, and are consumed atomically by EC2. Expiry is checked independently of DynamoDB TTL. Neither ticket endpoint accepts a client-supplied owner identity.
 
-The current EC2 placeholder **does not call this interface yet**, so this release can create and complete sessions but they will not become discoverable until connectivity is implemented. No UDP tickets, actual join, membership reservation, heartbeats, or NAT introductions are implemented. `/join` currently returns authorized connection details only.
+DiscoveryService activates ready sessions only after the owner authenticates over its UDP connection. It records the observed public endpoint and renews a 90-second lease every 30 seconds. Disconnect hides the session and leaves it ready until its existing expiry, allowing an owner to obtain a fresh ticket and reconnect. Authentication lasts for the live connection; expiry of the login token used to obtain the ticket does not disconnect an already-authenticated host. Connection-specific lease IDs prevent delayed cleanup from affecting a replacement host.
+
+EC2 now performs authenticated NAT introductions, with no relay fallback. See [DiscoveryService's wire protocol](../ArterraDiscoveryService/README.md) for the complete client flow. Unity transport integration remains separate.
 
 Listings contain the host endpoint, EC2 connectivity endpoint, and short-lived download URLs for the config and chunk. The initial implementation uses a paginated DynamoDB scan with an active/expiry filter. A page may be empty and still have `nextCursor`; continue until the cursor is null. Listing is eventually consistent, so `/join` re-reads the record consistently and checks expiry.
 
@@ -86,4 +99,4 @@ DynamoDB TTL eventually removes expired records; APIs filter expiry immediately.
 
 From `ArterraDiscoveryCDK`, `bash scripts/build-service.sh` builds both the EC2 artifact and this Lambda artifact. See that project's README for the pipeline and DNS setup. The Lambda uses managed .NET 8 with executable handler `Arterra.Game`; the cleanup function uses its separate class/method handler.
 
-For local HTTP development, the same executable uses Kestrel. Supply `UNITY_PROJECT_ID`, `IDENTITY_TABLE`, `LOGIN_TABLE`, `SESSION_TABLE`, `METADATA_BUCKET`, `CONNECTIVITY_HOST`, `CONNECTIVITY_PORT`, and an AWS region/credential profile for your development resources. Do not point local mutation tests at production resources.
+For local HTTP development, the same executable uses Kestrel. Supply `UNITY_PROJECT_ID`, `IDENTITY_TABLE`, `LOGIN_TABLE`, `SESSION_TABLE`, `TICKET_TABLE`, `METADATA_BUCKET`, `CONNECTIVITY_HOST`, `CONNECTIVITY_PORT`, and an AWS region/credential profile for your development resources. Do not point local mutation tests at production resources.

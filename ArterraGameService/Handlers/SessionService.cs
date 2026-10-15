@@ -1,8 +1,11 @@
 using Arterra.Game.Schemas;
-namespace Arterra.Game.Management.Sessions;
+using Arterra.Game.Storage;
+using System.Security.Cryptography;
+
+namespace Arterra.Game.Handlers;
 
 public sealed class SessionService(ISessionStore sessions, ISessionMetadata metadata,
-    NetworkEndpoint connectivityEndpoint, TimeProvider clock) {
+    NetworkEndpoint connectivityEndpoint, IConnectionTicketStore tickets, TimeProvider clock) {
 
     public const long MaximumMetadataBytes = 1024 * 1024;
     public const long MaximumChunkBytes = 16 * 1024 * 1024;
@@ -53,10 +56,31 @@ public sealed class SessionService(ISessionStore sessions, ISessionMetadata meta
         return await ViewAsync(session);
     }
 
+    public async Task<ConnectionTicketResponse> HostAsync(Guid id, Guid userId, CancellationToken cancel) {
+        var session = await OwnedAsync(id, userId, cancel);
+        if (session.Status != "ready")
+            throw new SessionRequestException(409, "Complete the metadata upload and disconnect any existing host before requesting a hosting ticket.");
+        return await IssueConnectionTicketAsync(userId, id, ConnectionRole.Host, cancel);
+    }
+
+    public async Task<JoinSessionResponse> JoinAsync(Guid id, Guid userId, CancellationToken cancel) {
+        var session = await GetActiveAsync(id, cancel);
+        var connection = await IssueConnectionTicketAsync(userId, id, ConnectionRole.Join, cancel);
+        return new JoinSessionResponse(session, connection);
+    }
+
     public async Task DeleteAsync(Guid id, Guid userId, CancellationToken cancel) {
         await OwnedAsync(id, userId, cancel);
         if (!await sessions.DeleteAsync(id, userId, cancel))
             throw new SessionRequestException(409, "Session is currently being completed. Retry deletion shortly.");
+    }
+
+    private async Task<ConnectionTicketResponse> IssueConnectionTicketAsync(
+        Guid userId, Guid sessionId, ConnectionRole role, CancellationToken cancel) {
+        var expiresAt = clock.GetUtcNow().AddSeconds(60);
+        var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        await tickets.SaveAsync(token, new ConnectionTicket(userId, sessionId, role, expiresAt), cancel);
+        return new ConnectionTicketResponse(token, expiresAt, connectivityEndpoint);
     }
 
     private async Task<SessionRecord> OwnedAsync(Guid id, Guid ownerId, CancellationToken cancel) {
@@ -76,4 +100,8 @@ public sealed class SessionService(ISessionStore sessions, ISessionMetadata meta
         return new SessionView(session.SessionId, session.Name, session.ExpiresAt,
             session.HostEndpoint!, connectivityEndpoint, urls.Metadata, urls.DisplayChunk);
     }
+}
+
+public sealed class SessionRequestException(int statusCode, string message) : Exception(message) {
+    public int StatusCode { get; } = statusCode;
 }

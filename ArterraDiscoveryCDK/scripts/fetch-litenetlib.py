@@ -20,20 +20,15 @@ if marker.exists() and json.loads(marker.read_text()) == lock and (destination /
 def download(url):
     request = urllib.request.Request(url, headers={
         'User-Agent': 'ArterraDiscovery-build',
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
     })
     with urllib.request.urlopen(request, timeout=60) as response:
         return response.read()
 
 
-release_url = f"https://api.github.com/repos/{lock['owner']}/{lock['repository']}/releases/tags/{lock['tag']}"
-release = json.loads(download(release_url))
-if (release['id'] != lock['releaseId'] or release['tag_name'] != lock['tag']
-        or release['draft'] or release['prerelease']):
-    raise RuntimeError('GitHub release does not match the pinned stable release')
-
-archive = download(release['tarball_url'])
+# Resolve release metadata when updating the lock, not on every clean build.
+# This is the archive endpoint used by GitHub's release tarball redirect.
+archive_url = f"https://codeload.github.com/{lock['owner']}/{lock['repository']}/legacy.tar.gz/refs/tags/{lock['tag']}"
+archive = download(archive_url)
 if hashlib.sha256(archive).hexdigest() != lock['sha256']:
     raise RuntimeError('LiteNetLib archive checksum mismatch; review the release before updating the lock')
 

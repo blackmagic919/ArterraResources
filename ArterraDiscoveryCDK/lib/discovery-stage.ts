@@ -14,15 +14,13 @@ interface DiscoveryStageProps extends cdk.StageProps {
 export class DiscoveryStage extends cdk.Stage {
   constructor(scope: Construct, id: string, props: DiscoveryStageProps) {
     super(scope, id, props);
-    const connectivity = new DiscoveryStack(this, 'Service');
-    new GameServiceStack(this, 'GameService', props.recordName, connectivity.publicAddress);
+    const game = new GameServiceStack(this, 'GameService', props.recordName);
+    new DiscoveryStack(this, 'Service', game);
   }
 }
 
 class DiscoveryStack extends cdk.Stack {
-  readonly publicAddress: string;
-
-  constructor(scope: Construct, id: string) {
+  constructor(scope: Construct, id: string, game: GameServiceStack) {
     super(scope, id);
 
     const vpc = new ec2.Vpc(this, 'Vpc', {
@@ -33,7 +31,7 @@ class DiscoveryStack extends cdk.Stack {
 
     const securityGroup = new ec2.SecurityGroup(this, 'ServiceSecurityGroup', {
       vpc,
-      description: 'UDP endpoint for the future introduction protocol',
+      description: 'Authenticated LiteNetLib NAT introduction endpoint',
     });
     securityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.udp(port), 'LiteNetLib UDP');
 
@@ -56,7 +54,7 @@ class DiscoveryStack extends cdk.Stack {
       }],
       init: ec2.CloudFormationInit.fromElements(
         ec2.InitSource.fromExistingAsset('/opt/arterra/discovery', artifact),
-        ec2.InitFile.fromString('/etc/systemd/system/arterra-discovery.service', unit),
+        ec2.InitFile.fromString('/etc/systemd/system/arterra-discovery.service', unit(game.sessions.tableName, game.tickets.tableName, this.region)),
         ec2.InitCommand.shellCommand('id arterra >/dev/null 2>&1 || useradd --system --no-create-home --shell /sbin/nologin arterra'),
         ec2.InitCommand.shellCommand('chmod 0755 /opt/arterra/discovery/Arterra.Discovery'),
         ec2.InitCommand.shellCommand('systemctl daemon-reload && systemctl enable --now arterra-discovery.service'),
@@ -72,14 +70,15 @@ class DiscoveryStack extends cdk.Stack {
     });
     instance.role.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'));
 
+    game.sessions.grant(instance.role, 'dynamodb:GetItem', 'dynamodb:UpdateItem');
+    game.tickets.grant(instance.role, 'dynamodb:DeleteItem');
+
     // The instance initially uses its assigned public IP for bootstrap, then receives its stable EIP.
-    const address = new ec2.CfnEIP(this, 'PublicAddress', { domain: 'vpc' });
+    const address = game.address;
     new ec2.CfnEIPAssociation(this, 'AddressAssociation', {
       allocationId: address.attrAllocationId,
       instanceId: instance.instanceId,
     });
-
-    this.publicAddress = address.ref;
 
     new cdk.CfnOutput(this, 'PublicIp', { value: address.ref });
     new cdk.CfnOutput(this, 'UdpPort', { value: String(port) });

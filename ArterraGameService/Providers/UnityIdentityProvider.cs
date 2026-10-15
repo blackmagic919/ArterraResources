@@ -5,7 +5,7 @@ using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 
-namespace Arterra.Game.Management.Auth;
+namespace Arterra.Game.Providers;
 
 public sealed class UnityIdentityProvider : IIdentityProvider {
     public const string Issuer = "https://player-auth.services.api.unity.com";

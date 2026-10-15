@@ -15,8 +15,8 @@ export const unityProjectId = '4662aa5d-0aa4-4010-9862-bd76e184f4c9';
 export const port = 9050;
 export const instanceType = 't3.micro';
 
-export const unit = `[Unit]
-Description=Arterra discovery placeholder (LiteNetLib)
+export const unit = (sessionTable: string, ticketTable: string, region: string) => `[Unit]
+Description=Arterra NAT introduction service (LiteNetLib)
 Wants=network-online.target
 After=network-online.target
 
@@ -27,11 +27,14 @@ Group=arterra
 WorkingDirectory=/opt/arterra/discovery
 ExecStart=/opt/arterra/discovery/Arterra.Discovery
 Environment=ARTERRA_UDP_PORT=${port}
+Environment=AWS_REGION=${region}
+Environment=SESSION_TABLE=${sessionTable}
+Environment=TICKET_TABLE=${ticketTable}
 Environment=DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM
-TimeoutStopSec=20
+TimeoutStopSec=30
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

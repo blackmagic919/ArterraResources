@@ -1,11 +1,11 @@
+using Arterra.Game.Handlers;
 using Arterra.Game.Schemas;
 using System.Net;
 using System.Text.Json;
 using Amazon.S3;
 using Amazon.S3.Model;
-using Arterra.Game.Management.Sessions;
 
-namespace Arterra.Game.Management.Storage;
+namespace Arterra.Game.Storage;
 
 public sealed class S3SessionMetadata(IAmazonS3 storage, string bucket) : ISessionMetadata {
     public async Task<(UploadTarget Metadata, UploadTarget DisplayChunk)> CreateUploadsAsync(
