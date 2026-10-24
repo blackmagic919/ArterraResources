@@ -5,13 +5,13 @@ using System.Globalization;
 namespace Arterra.Game.Validators;
 
 public sealed class CreateSessionValidator : AbstractValidator<CreateSessionRequest> {
-    public const long MaximumMetadataBytes = 1024 * 1024;
-    public const long MaximumChunkBytes = 16 * 1024 * 1024;
+    public const long MaximumPreviewInfoBytes = 4 * 1024 * 1024;
+    public const long MaximumDetailedInfoBytes = 32 * 1024 * 1024;
 
     public CreateSessionValidator() {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(128);
-        RuleFor(x => x.MetadataBytes).InclusiveBetween(2, MaximumMetadataBytes);
-        RuleFor(x => x.DisplayChunkBytes).InclusiveBetween(1, MaximumChunkBytes);
+        RuleFor(x => x.PreviewInfoBytes).InclusiveBetween(0, MaximumPreviewInfoBytes);
+        RuleFor(x => x.DetailedInfoBytes).InclusiveBetween(0, MaximumDetailedInfoBytes);
         RuleFor(x => x.MaxConnections).GreaterThanOrEqualTo(1);
     }
 }

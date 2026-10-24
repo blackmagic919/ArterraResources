@@ -13,7 +13,7 @@ public sealed class DynamoIdentityStore(IAmazonDynamoDB database, string table) 
             JsonSerializer.Serialize(new[] { identity.Issuer, identity.Subject }))));
 
         // One atomic update makes simultaneous first logins resolve to the same user.
-        var result = await database.UpdateItemAsync(new UpdateItemRequest {
+        var request = new UpdateItemRequest {
             TableName = table,
             Key = new() { ["identityKey"] = new AttributeValue(key) },
             UpdateExpression = "SET userId = if_not_exists(userId, :user), issuer = :issuer, subject = :subject",
@@ -23,7 +23,12 @@ public sealed class DynamoIdentityStore(IAmazonDynamoDB database, string table) 
                 [":subject"] = new AttributeValue(identity.Subject),
             },
             ReturnValues = ReturnValue.ALL_NEW,
-        }, cancellationToken);
+        };
+        if (identity.DisplayName != null) {
+            request.UpdateExpression += ", displayName = :name";
+            request.ExpressionAttributeValues[":name"] = new AttributeValue(identity.DisplayName);
+        } else request.UpdateExpression += " REMOVE displayName";
+        var result = await database.UpdateItemAsync(request, cancellationToken);
 
         return Guid.Parse(result.Attributes["userId"].S);
     }

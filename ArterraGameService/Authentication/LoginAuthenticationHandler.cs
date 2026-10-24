@@ -19,10 +19,11 @@ public sealed class LoginAuthenticationHandler(
         if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             return AuthenticateResult.NoResult();
 
-        var userId = await login.AuthenticateAsync(header[7..], Context.RequestAborted);
-        if (userId == null) return AuthenticateResult.Fail("Invalid or expired login token.");
+        var user = await login.AuthenticateAsync(header[7..], Context.RequestAborted);
+        if (user == null) return AuthenticateResult.Fail("Invalid or expired login token.");
 
-        var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId.Value.ToString())], SchemeName);
+        var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString())], SchemeName);
+        if (user.DisplayName != null) identity.AddClaim(new Claim(ClaimTypes.Name, user.DisplayName));
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName));
     }
 }

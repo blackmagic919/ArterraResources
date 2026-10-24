@@ -30,12 +30,12 @@ public sealed class LoginService(
 
         var userId = await identities.GetOrCreateUserAsync(identity, cancellationToken);
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        await tokens.SaveAsync(Hash(token), userId, expiresAt, cancellationToken);
+        await tokens.SaveAsync(Hash(token), new AuthenticatedUser(userId, identity.DisplayName), expiresAt, cancellationToken);
         return new LoginResponse(userId, token, expiresAt);
     }
 
-    public Task<Guid?> AuthenticateAsync(string token, CancellationToken cancellationToken) {
-        if (token.Length != 64 || !token.All(Uri.IsHexDigit)) return Task.FromResult<Guid?>(null);
+    public Task<AuthenticatedUser?> AuthenticateAsync(string token, CancellationToken cancellationToken) {
+        if (token.Length != 64 || !token.All(Uri.IsHexDigit)) return Task.FromResult<AuthenticatedUser?>(null);
         return tokens.FindUserAsync(Hash(token), clock.GetUtcNow(), cancellationToken);
     }
 

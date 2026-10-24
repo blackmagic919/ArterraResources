@@ -20,8 +20,8 @@ public sealed class MetadataCleanup {
             var result = await storage.DeleteObjectsAsync(new DeleteObjectsRequest {
                 BucketName = bucket,
                 Objects = [
-                    new KeyVersion { Key = $"sessions/{id}/metadata.json" },
-                    new KeyVersion { Key = $"sessions/{id}/display-chunk.bin" },
+                    new KeyVersion { Key = $"sessions/{id}/preview-info" },
+                    new KeyVersion { Key = $"sessions/{id}/detailed-info" },
                 ],
             });
             if (result.DeleteErrors?.Count > 0)

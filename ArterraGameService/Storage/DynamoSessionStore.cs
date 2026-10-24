@@ -22,6 +22,7 @@ public sealed class DynamoSessionStore(IAmazonDynamoDB database, string table, s
             ConditionExpression = "attribute_not_exists(sessionId)",
         };
         if (session.MaxConnections.HasValue) request.Item["maxConnections"] = Number(session.MaxConnections.Value);
+        if (session.HostDisplayName != null) request.Item["hostDisplayName"] = new AttributeValue(session.HostDisplayName);
         await database.PutItemAsync(request, cancellationToken);
     }
 
@@ -119,5 +120,6 @@ public sealed class DynamoSessionStore(IAmazonDynamoDB database, string table, s
         item["status"].S, DateTimeOffset.FromUnixTimeSeconds(long.Parse(item["expiresAt"].N, CultureInfo.InvariantCulture)),
         item.TryGetValue("maxConnections", out var maximum) ? int.Parse(maximum.N, CultureInfo.InvariantCulture) : null,
         item.TryGetValue("connectionCount", out var count) ? int.Parse(count.N, CultureInfo.InvariantCulture) : 0,
-        item.TryGetValue("hostIp", out var ip) ? new NetworkEndpoint(ip.S, int.Parse(item["hostPort"].N, CultureInfo.InvariantCulture)) : null);
+        item.TryGetValue("hostIp", out var ip) ? new NetworkEndpoint(ip.S, int.Parse(item["hostPort"].N, CultureInfo.InvariantCulture)) : null,
+        item.TryGetValue("hostDisplayName", out var hostName) ? hostName.S : null);
 }

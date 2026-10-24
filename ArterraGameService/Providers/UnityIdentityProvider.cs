@@ -1,5 +1,8 @@
 using Arterra.Game.Schemas;
 using System.Text.Json;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using FluentValidation;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
@@ -13,6 +16,7 @@ public sealed class UnityIdentityProvider : IIdentityProvider {
     public string Name => "unity";
 
     private readonly string projectId;
+    private readonly HttpClient http;
     private readonly IValidator<UnityCredential> validator;
     private readonly ConfigurationManager<OpenIdConnectConfiguration> keys;
     private readonly JsonWebTokenHandler handler = new() { MaximumTokenSizeInBytes = 16 * 1024 };
@@ -20,6 +24,7 @@ public sealed class UnityIdentityProvider : IIdentityProvider {
 
     public UnityIdentityProvider(HttpClient http, string projectId, IValidator<UnityCredential> validator) {
         this.projectId = projectId;
+        this.http = http;
         this.validator = validator;
         keys = new ConfigurationManager<OpenIdConnectConfiguration>(
             $"{Issuer}/.well-known/jwks.json", new JwksRetriever(), new HttpDocumentRetriever(http)) {
@@ -50,7 +55,8 @@ public sealed class UnityIdentityProvider : IIdentityProvider {
         });
 
         if (!validation.IsValid) {
-            if (validation.Exception is SecurityTokenSignatureKeyNotFoundException) keys.RequestRefresh();
+            if (validation.Exception is SecurityTokenSignatureKeyNotFoundException)
+                keys.RequestRefresh();
             throw new UnauthorizedAccessException();
         }
 
@@ -60,7 +66,19 @@ public sealed class UnityIdentityProvider : IIdentityProvider {
             || string.IsNullOrWhiteSpace(token.Subject))
             throw new UnauthorizedAccessException();
 
-        return new ExternalIdentity(Issuer, token.Subject, new DateTimeOffset(token.ValidTo, TimeSpan.Zero));
+        var displayName = await GetDisplayNameAsync(token.Subject, input.AuthenticationToken, cancellationToken);
+        return new ExternalIdentity(Issuer, token.Subject, new DateTimeOffset(token.ValidTo, TimeSpan.Zero), displayName);
+    }
+
+    private async Task<string?> GetDisplayNameAsync(string playerId, string accessToken, CancellationToken cancel) {
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            $"https://social.services.api.unity.com/v1/names/{Uri.EscapeDataString(playerId)}?autoGenerate=false");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        using var response = await http.SendAsync(request, cancel);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        response.EnsureSuccessStatusCode();
+        var player = await response.Content.ReadFromJsonAsync<UnityPlayerName>(Json, cancel);
+        return string.IsNullOrWhiteSpace(player?.Name) ? null : player.Name;
     }
 
     private sealed class JwksRetriever : IConfigurationRetriever<OpenIdConnectConfiguration> {

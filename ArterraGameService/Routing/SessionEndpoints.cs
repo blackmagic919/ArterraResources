@@ -15,7 +15,7 @@ public static class SessionEndpoints {
         });
 
         group.MapPost("/", async (CreateSessionRequest request, SessionService service, HttpContext context) => {
-            var result = await service.CreateAsync(UserId(context), request, context.RequestAborted);
+            var result = await service.CreateAsync(UserId(context), request, context.RequestAborted, context.User.FindFirstValue(ClaimTypes.Name));
             return Results.Created($"/sessions/{result.SessionId}", result);
         }).RequireAuthorization();
 

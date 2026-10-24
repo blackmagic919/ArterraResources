@@ -9,5 +9,7 @@ public sealed record LoginRequest(JsonElement Credential);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record UnityCredential(string AuthenticationToken);
 
-public sealed record ExternalIdentity(string Issuer, string Subject, DateTimeOffset ExpiresAt);
+public sealed record ExternalIdentity(string Issuer, string Subject, DateTimeOffset ExpiresAt, string? DisplayName = null);
+public sealed record AuthenticatedUser(Guid UserId, string? DisplayName = null);
+public sealed record UnityPlayerName(string? Name);
 public sealed record LoginResponse(Guid UserId, string SessionToken, DateTimeOffset ExpiresAt);

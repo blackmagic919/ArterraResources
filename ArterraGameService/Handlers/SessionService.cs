@@ -9,15 +9,15 @@ public sealed class SessionService(ISessionStore sessions, ISessionMetadata meta
     NetworkEndpoint connectivityEndpoint, IConnectionTicketStore tickets, TimeProvider clock,
     IValidator<CreateSessionRequest> createValidator, IValidator<SessionQuery> queryValidator) {
 
-    public async Task<CreateSessionResponse> CreateAsync(Guid userId, CreateSessionRequest request, CancellationToken cancel) {
+    public async Task<CreateSessionResponse> CreateAsync(Guid userId, CreateSessionRequest request, CancellationToken cancel, string? hostDisplayName = null) {
         await createValidator.ValidateAndThrowAsync(request, cancel);
 
         var now = clock.GetUtcNow();
-        var session = new SessionRecord(Guid.NewGuid(), userId, request.Name.Trim(), "uploading", now.AddHours(1), request.MaxConnections, 0, null);
+        var session = new SessionRecord(Guid.NewGuid(), userId, request.Name.Trim(), "uploading", now.AddHours(1), request.MaxConnections, 0, null, hostDisplayName);
         var uploadExpiry = now.AddMinutes(10);
-        var uploads = await metadata.CreateUploadsAsync(session.SessionId, request.MetadataBytes, request.DisplayChunkBytes, uploadExpiry);
+        var uploads = await metadata.CreateUploadsAsync(session.SessionId, request.PreviewInfoBytes, request.DetailedInfoBytes, uploadExpiry);
         await sessions.CreateAsync(session, cancel);
-        return new CreateSessionResponse(session.SessionId, session.ExpiresAt, uploadExpiry, uploads.Metadata, uploads.DisplayChunk);
+        return new CreateSessionResponse(session.SessionId, session.ExpiresAt, uploadExpiry, uploads.PreviewInfo, uploads.DetailedInfo);
     }
 
     public async Task CompleteAsync(Guid id, Guid userId, CancellationToken cancel) {
@@ -94,7 +94,7 @@ public sealed class SessionService(ISessionStore sessions, ISessionMetadata meta
         if (session.ExpiresAt < expiry) expiry = session.ExpiresAt;
         var urls = await metadata.GetDownloadsAsync(session.SessionId, expiry);
         return new SessionView(session.SessionId, session.Name, session.ExpiresAt,
-            session.HostEndpoint!, connectivityEndpoint, urls.Metadata, urls.DisplayChunk, session.ConnectionCount, session.MaxConnections);
+            session.HostEndpoint!, urls.PreviewInfo, urls.DetailedInfo, session.ConnectionCount, session.MaxConnections, session.HostDisplayName);
     }
 }
 
