@@ -11,6 +11,7 @@
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.AspNetCoreServer.Hosting" Version="2.2.1" />
     <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="4.0.0" />
+    <PackageReference Include="FluentValidation" Version="12.2.0" />
     <PackageReference Include="AWSSDK.DynamoDBv2" Version="4.0.107.3" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.104.4" />
     <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.23.0" />

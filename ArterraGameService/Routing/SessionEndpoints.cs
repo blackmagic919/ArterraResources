@@ -6,7 +6,7 @@ namespace Arterra.Game.Routing;
 
 public static class SessionEndpoints {
     public static void MapSessions(this IEndpointRouteBuilder endpoints) {
-        var group = endpoints.MapGroup("/sessions").AddEndpointFilter(async (context, next) => {
+        var group = endpoints.MapGroup("/sessions").AddEndpointFilter<PayloadValidation>().AddEndpointFilter(async (context, next) => {
             context.HttpContext.Response.Headers.CacheControl = "no-store";
             try { return await next(context); }
             catch (SessionRequestException exception) {
@@ -24,7 +24,7 @@ public static class SessionEndpoints {
             return Results.NoContent();
         }).RequireAuthorization();
 
-        group.MapGet("/", async (int? limit, Guid? cursor, SessionService service, CancellationToken cancel) =>
+        group.MapGet("/", async (int? limit, string? cursor, SessionService service, CancellationToken cancel) =>
             Results.Ok(await service.ListAsync(limit ?? 20, cursor, cancel)));
 
         group.MapGet("/{id:guid}", async (Guid id, SessionService service, CancellationToken cancel) =>

@@ -12,9 +12,11 @@ public sealed record ConnectionTicketResponse(string Ticket, DateTimeOffset Expi
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(AuthenticateConnection), "authenticate")]
 [JsonDerivedType(typeof(IntroductionResult), "introductionResult")]
+[JsonDerivedType(typeof(ConnectionDeparted), "connectionDeparted")]
 public abstract record DiscoveryClientMessage;
 public sealed record AuthenticateConnection(string Ticket, NetworkEndpoint LocalEndpoint) : DiscoveryClientMessage;
 public sealed record IntroductionResult(Guid IntroductionId, bool Connected) : DiscoveryClientMessage;
+public sealed record ConnectionDeparted(Guid IntroductionId) : DiscoveryClientMessage;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(HostReady), "hostReady")]

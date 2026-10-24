@@ -1,23 +1,19 @@
 using Arterra.Game.Schemas;
+using FluentValidation;
 using Arterra.Game.Storage;
 using System.Security.Cryptography;
 
 namespace Arterra.Game.Handlers;
 
 public sealed class SessionService(ISessionStore sessions, ISessionMetadata metadata,
-    NetworkEndpoint connectivityEndpoint, IConnectionTicketStore tickets, TimeProvider clock) {
-
-    public const long MaximumMetadataBytes = 1024 * 1024;
-    public const long MaximumChunkBytes = 16 * 1024 * 1024;
+    NetworkEndpoint connectivityEndpoint, IConnectionTicketStore tickets, TimeProvider clock,
+    IValidator<CreateSessionRequest> createValidator, IValidator<SessionQuery> queryValidator) {
 
     public async Task<CreateSessionResponse> CreateAsync(Guid userId, CreateSessionRequest request, CancellationToken cancel) {
-        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 128)
-            throw new SessionRequestException(400, "name must contain 1–128 characters.");
-        if (request.MetadataBytes is < 2 or > MaximumMetadataBytes || request.DisplayChunkBytes is < 1 or > MaximumChunkBytes)
-            throw new SessionRequestException(400, "metadataBytes must be 2–1048576 and displayChunkBytes 1–16777216.");
+        await createValidator.ValidateAndThrowAsync(request, cancel);
 
         var now = clock.GetUtcNow();
-        var session = new SessionRecord(Guid.NewGuid(), userId, request.Name.Trim(), "uploading", now.AddHours(1), null);
+        var session = new SessionRecord(Guid.NewGuid(), userId, request.Name.Trim(), "uploading", now.AddHours(1), request.MaxConnections, 0, null);
         var uploadExpiry = now.AddMinutes(10);
         var uploads = await metadata.CreateUploadsAsync(session.SessionId, request.MetadataBytes, request.DisplayChunkBytes, uploadExpiry);
         await sessions.CreateAsync(session, cancel);
@@ -40,8 +36,8 @@ public sealed class SessionService(ISessionStore sessions, ISessionMetadata meta
         await sessions.FinishPublicationAsync(id, true, cancel);
     }
 
-    public async Task<SessionList> ListAsync(int limit, Guid? cursor, CancellationToken cancel) {
-        if (limit is < 1 or > 100) throw new SessionRequestException(400, "limit must be between 1 and 100.");
+    public async Task<SessionList> ListAsync(int limit, string? cursor, CancellationToken cancel) {
+        await queryValidator.ValidateAndThrowAsync(new SessionQuery(limit, cursor), cancel);
         var page = await sessions.ListAsync(limit, cursor, cancel);
         var views = new List<SessionView>();
         foreach (var session in page.Sessions) {
@@ -98,7 +94,7 @@ public sealed class SessionService(ISessionStore sessions, ISessionMetadata meta
         if (session.ExpiresAt < expiry) expiry = session.ExpiresAt;
         var urls = await metadata.GetDownloadsAsync(session.SessionId, expiry);
         return new SessionView(session.SessionId, session.Name, session.ExpiresAt,
-            session.HostEndpoint!, connectivityEndpoint, urls.Metadata, urls.DisplayChunk);
+            session.HostEndpoint!, connectivityEndpoint, urls.Metadata, urls.DisplayChunk, session.ConnectionCount, session.MaxConnections);
     }
 }
 

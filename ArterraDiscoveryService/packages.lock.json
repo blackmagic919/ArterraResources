@@ -11,6 +11,12 @@
           "AWSSDK.Core": "[4.0.102.11, 5.0.0)"
         }
       },
+      "FluentValidation": {
+        "type": "Direct",
+        "requested": "[12.2.0, )",
+        "resolved": "12.2.0",
+        "contentHash": "DR3lFbdnKucaaj1/8zMNOACMz/64igzox1yVZSFVsLxYB5mxAB+wFP1WZ8fjwrZnbU1KA1DoMzHKYKxUfuZ4wQ=="
+      },
       "AWSSDK.Core": {
         "type": "Transitive",
         "resolved": "4.0.102.11",

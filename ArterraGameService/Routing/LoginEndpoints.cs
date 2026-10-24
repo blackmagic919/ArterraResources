@@ -14,6 +14,6 @@ public static class LoginEndpoints {
             } catch (UnauthorizedAccessException) {
                 return Results.Unauthorized();
             }
-        });
+        }).AddEndpointFilter<PayloadValidation>();
     }
 }

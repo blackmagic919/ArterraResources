@@ -7,19 +7,22 @@ namespace Arterra.Game.Storage;
 
 public sealed class DynamoSessionStore(IAmazonDynamoDB database, string table, string metadataBucket, TimeProvider clock) : ISessionStore {
     public async Task CreateAsync(SessionRecord session, CancellationToken cancellationToken) {
-        await database.PutItemAsync(new PutItemRequest {
+        var request = new PutItemRequest {
             TableName = table,
             Item = new() {
                 ["sessionId"] = new AttributeValue(session.SessionId.ToString()),
                 ["ownerId"] = new AttributeValue(session.OwnerId.ToString()),
                 ["name"] = new AttributeValue(session.Name),
                 ["status"] = new AttributeValue("uploading"),
+                ["connectionCount"] = Number(session.ConnectionCount),
                 ["metadataBucket"] = new AttributeValue(metadataBucket),
                 ["metadataPrefix"] = new AttributeValue($"sessions/{session.SessionId}/"),
                 ["expiresAt"] = Number(session.ExpiresAt.ToUnixTimeSeconds()),
             },
             ConditionExpression = "attribute_not_exists(sessionId)",
-        }, cancellationToken);
+        };
+        if (session.MaxConnections.HasValue) request.Item["maxConnections"] = Number(session.MaxConnections.Value);
+        await database.PutItemAsync(request, cancellationToken);
     }
 
     public async Task<bool> BeginPublicationAsync(Guid sessionId, Guid ownerId, CancellationToken cancellationToken) {
@@ -66,12 +69,19 @@ public sealed class DynamoSessionStore(IAmazonDynamoDB database, string table, s
         return result.Item == null || result.Item.Count == 0 ? null : Read(result.Item);
     }
 
-    public async Task<SessionPage> ListAsync(int limit, Guid? cursor, CancellationToken cancellationToken) {
-        var result = await database.ScanAsync(new ScanRequest {
+    public async Task<SessionPage> ListAsync(int limit, string? cursor, CancellationToken cancellationToken) {
+        var result = await database.QueryAsync(new QueryRequest {
             TableName = table,
             Limit = limit,
-            ExclusiveStartKey = cursor.HasValue ? Key(cursor.Value) : null,
-            FilterExpression = "#status = :active AND expiresAt > :now",
+            IndexName = "SessionsByConnectionCount",
+            ScanIndexForward = false,
+            ExclusiveStartKey = cursor == null ? null : new() {
+                ["sessionId"] = new AttributeValue(Guid.ParseExact(cursor[..32], "N").ToString()),
+                ["status"] = new AttributeValue("active"),
+                ["connectionCount"] = Number(int.Parse(cursor[33..], CultureInfo.InvariantCulture)),
+            },
+            KeyConditionExpression = "#status = :active",
+            FilterExpression = "expiresAt > :now",
             ExpressionAttributeNames = new() { ["#status"] = "status" },
             ExpressionAttributeValues = new() {
                 [":active"] = new AttributeValue("active"),
@@ -81,7 +91,8 @@ public sealed class DynamoSessionStore(IAmazonDynamoDB database, string table, s
 
         var next = result.LastEvaluatedKey;
         return new SessionPage((result.Items ?? []).Select(Read).ToList(),
-            next != null && next.Count != 0 ? Guid.Parse(next["sessionId"].S) : null);
+            next != null && next.Count != 0
+                ? $"{Guid.Parse(next["sessionId"].S):N}:{next["connectionCount"].N}" : null);
     }
 
     public async Task<bool> DeleteAsync(Guid sessionId, Guid ownerId, CancellationToken cancellationToken) {
@@ -106,5 +117,7 @@ public sealed class DynamoSessionStore(IAmazonDynamoDB database, string table, s
     private static SessionRecord Read(Dictionary<string, AttributeValue> item) => new(
         Guid.Parse(item["sessionId"].S), Guid.Parse(item["ownerId"].S), item["name"].S,
         item["status"].S, DateTimeOffset.FromUnixTimeSeconds(long.Parse(item["expiresAt"].N, CultureInfo.InvariantCulture)),
+        item.TryGetValue("maxConnections", out var maximum) ? int.Parse(maximum.N, CultureInfo.InvariantCulture) : null,
+        item.TryGetValue("connectionCount", out var count) ? int.Parse(count.N, CultureInfo.InvariantCulture) : 0,
         item.TryGetValue("hostIp", out var ip) ? new NetworkEndpoint(ip.S, int.Parse(item["hostPort"].N, CultureInfo.InvariantCulture)) : null);
 }

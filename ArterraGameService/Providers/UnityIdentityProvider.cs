@@ -1,5 +1,6 @@
 using Arterra.Game.Schemas;
 using System.Text.Json;
+using FluentValidation;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -12,12 +13,14 @@ public sealed class UnityIdentityProvider : IIdentityProvider {
     public string Name => "unity";
 
     private readonly string projectId;
+    private readonly IValidator<UnityCredential> validator;
     private readonly ConfigurationManager<OpenIdConnectConfiguration> keys;
     private readonly JsonWebTokenHandler handler = new() { MaximumTokenSizeInBytes = 16 * 1024 };
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public UnityIdentityProvider(HttpClient http, string projectId) {
+    public UnityIdentityProvider(HttpClient http, string projectId, IValidator<UnityCredential> validator) {
         this.projectId = projectId;
+        this.validator = validator;
         keys = new ConfigurationManager<OpenIdConnectConfiguration>(
             $"{Issuer}/.well-known/jwks.json", new JwksRetriever(), new HttpDocumentRetriever(http)) {
             AutomaticRefreshInterval = TimeSpan.FromHours(8),
@@ -25,12 +28,11 @@ public sealed class UnityIdentityProvider : IIdentityProvider {
     }
 
     public async Task<ExternalIdentity> ValidateAsync(JsonElement credential, CancellationToken cancellationToken) {
-        UnityCredential? input;
-        try { input = credential.Deserialize<UnityCredential>(Json); }
+        UnityCredential input;
+        try { input = credential.Deserialize<UnityCredential>(Json) ?? throw new JsonException(); }
         catch (JsonException) { throw new ArgumentException("Invalid Unity credential."); }
 
-        if (string.IsNullOrWhiteSpace(input?.AuthenticationToken) || input.AuthenticationToken.Length > 16 * 1024)
-            throw new ArgumentException("A Unity authenticationToken is required.");
+        await validator.ValidateAndThrowAsync(input, cancellationToken);
 
         var configuration = await keys.GetConfigurationAsync(cancellationToken);
         var validation = await handler.ValidateTokenAsync(input.AuthenticationToken, new TokenValidationParameters {

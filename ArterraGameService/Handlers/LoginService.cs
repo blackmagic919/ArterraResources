@@ -3,7 +3,7 @@ using Arterra.Game.Schemas;
 using Arterra.Game.Storage;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
+using FluentValidation;
 
 namespace Arterra.Game.Handlers;
 
@@ -11,20 +11,18 @@ public sealed class LoginService(
     IEnumerable<IIdentityProvider> providers,
     IIdentityStore identities,
     ILoginTokenStore tokens,
-    TimeProvider clock) {
+    TimeProvider clock,
+    IValidator<LoginRequest> validator) {
 
     private readonly Dictionary<string, IIdentityProvider> providers = providers.ToDictionary(p => p.Name);
     public static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(30);
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken) {
-        if (request.Credential.ValueKind != JsonValueKind.Object)
-            throw new ArgumentException("credential must contain exactly one provider.");
+        await validator.ValidateAndThrowAsync(request, cancellationToken);
+        var credential = request.Credential.EnumerateObject().Single();
+        var provider = providers[credential.Name];
 
-        var choices = request.Credential.EnumerateObject().ToArray();
-        if (choices.Length != 1 || !providers.TryGetValue(choices[0].Name, out var provider))
-            throw new ArgumentException("credential must contain exactly one supported provider.");
-
-        var identity = await provider.ValidateAsync(choices[0].Value, cancellationToken);
+        var identity = await provider.ValidateAsync(credential.Value, cancellationToken);
         var now = clock.GetUtcNow();
         var expiresAt = now + TokenLifetime;
         if (identity.ExpiresAt < expiresAt) expiresAt = identity.ExpiresAt;

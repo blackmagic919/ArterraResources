@@ -43,6 +43,12 @@ export class GameServiceStack extends cdk.Stack {
       stream: dynamodb.StreamViewType.OLD_IMAGE,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
+    sessions.addGlobalSecondaryIndex({
+      indexName: 'SessionsByConnectionCount',
+      partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'connectionCount', type: dynamodb.AttributeType.NUMBER },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
     this.sessions = sessions;
     this.tickets = new dynamodb.Table(this, 'ConnectionTickets', {
       partitionKey: { name: 'ticketHash', type: dynamodb.AttributeType.STRING },

@@ -1,8 +1,8 @@
 using Arterra.Game.Schemas;
+using FluentValidation;
 using Arterra.Game.Storage;
 using System.Collections.Concurrent;
 using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using Arterra.Discovery.Storage;
 using LiteNetLib;
@@ -20,6 +20,7 @@ public sealed class DiscoveryServer {
         public DateTimeOffset RenewAt;
         public DateTimeOffset LeaseExpires;
         public Introduction? Introduction;
+        public readonly HashSet<Guid> Departures = new();
     }
 
     private sealed class Introduction(Client host, Guid id, DateTimeOffset now) {
@@ -60,7 +61,7 @@ public sealed class DiscoveryServer {
                 return;
             }
             try { Receive(client, DiscoveryProtocol.Decode(reader.GetRemainingBytes())); }
-            catch (Exception exception) when (exception is JsonException or NotSupportedException or ArgumentException) {
+            catch (Exception exception) when (exception is JsonException or NotSupportedException or ArgumentException or ValidationException) {
                 Close(client, "invalidMessage");
             }
         };
@@ -112,8 +113,7 @@ public sealed class DiscoveryServer {
     private void Receive(Client client, DiscoveryClientMessage? message) {
         switch (message) {
             case AuthenticateConnection auth when client.Ticket == null && !client.Busy:
-                if (!TryLocalEndpoint(auth.LocalEndpoint, out var endpoint)) { Close(client, "invalidEndpoint"); return; }
-                client.LocalEndpoint = endpoint;
+                client.LocalEndpoint = new IPEndPoint(IPAddress.Parse(auth.LocalEndpoint.Host), auth.LocalEndpoint.Port);
                 client.Busy = true;
                 client.Deadline = clock.GetUtcNow().AddSeconds(15);
                 Schedule(async cancel => {
@@ -127,6 +127,11 @@ public sealed class DiscoveryServer {
                         else BeginIntroduction(client);
                     };
                 }, exception => Fail(client, exception));
+                break;
+            case ConnectionDeparted departure when client.Ticket?.Role == ConnectionRole.Host
+                && hosts.GetValueOrDefault(client.Ticket.SessionId) == client:
+                client.Departures.Add(departure.IntroductionId);
+                client.RenewAt = clock.GetUtcNow();
                 break;
             case IntroductionResult result when client.Introduction?.Id == result.IntroductionId:
                 Finish(client, result.Connected);
@@ -164,12 +169,16 @@ public sealed class DiscoveryServer {
         var ticket = client.Ticket!;
         client.Busy = true;
         var started = clock.GetUtcNow();
+        var departures = client.Departures.ToArray();
         Schedule(async cancel => {
+            foreach (var id in departures)
+                await sessions.ReleaseConnectionAsync(ticket.SessionId, client.LeaseId, id, cancel);
             var renewed = await sessions.RenewAsync(ticket.SessionId, ticket.UserId, client.LeaseId, cancel);
             return () => {
                 client.Busy = false;
                 if (!IsConnected(client)) return;
                 if (!renewed) { Close(client, "sessionUnavailable"); return; }
+                foreach (var id in departures) client.Departures.Remove(id);
                 client.LeaseExpires = started.AddSeconds(90);
                 client.RenewAt = started.AddSeconds(30);
             };
@@ -187,25 +196,39 @@ public sealed class DiscoveryServer {
             return;
         }
         client.Busy = true;
+        var id = Guid.NewGuid();
         Schedule(async cancel => {
-            var active = await sessions.IsActiveAsync(ticket.SessionId, host.LeaseId, cancel);
+            var active = await sessions.TryReserveConnectionAsync(ticket.SessionId, host.LeaseId, id, cancel);
             return () => {
                 client.Busy = false;
-                if (!IsConnected(client)) return;
-                if (!active || !IsConnected(host)) { Close(client, "hostUnavailable"); return; }
-                var introduction = new Introduction(host, Guid.NewGuid(), clock.GetUtcNow());
+                if (!active) { if (IsConnected(client)) Close(client, "sessionFullOrUnavailable"); return; }
+                if (!IsConnected(client) || !IsConnected(host)) {
+                    QueueDeparture(host, id);
+                    if (IsConnected(client)) Close(client, "hostUnavailable");
+                    return;
+                }
+                var introduction = new Introduction(host, id, clock.GetUtcNow());
                 client.Introduction = introduction;
                 client.Deadline = null;
                 Send(host, new PeerIntroduction(ticket.SessionId, introduction.Id, ticket.UserId));
                 Send(client, new PeerIntroduction(ticket.SessionId, introduction.Id, host.Ticket!.UserId));
                 Log($"Introducing user {ticket.UserId} to session {ticket.SessionId}, attempt {introduction.Id}.");
             };
-        }, exception => Fail(client, exception));
+        }, exception => {
+            QueueDeparture(host, id);
+            Fail(client, exception);
+        });
+    }
+
+    private void QueueDeparture(Client host, Guid id) {
+        host.Departures.Add(id);
+        host.RenewAt = clock.GetUtcNow();
     }
 
     private void Finish(Client client, bool connected) {
         var introduction = client.Introduction!;
         client.Introduction = null;
+        if (!connected) QueueDeparture(introduction.Host, introduction.Id);
         if (IsConnected(introduction.Host)) Send(introduction.Host, new IntroductionFinished(introduction.Id, connected));
         client.Peer.Disconnect(DiscoveryProtocol.Encode(new IntroductionFinished(introduction.Id, connected)));
         Remove(client);
@@ -220,8 +243,11 @@ public sealed class DiscoveryServer {
 
     private void Remove(Client client) {
         if (!clients.Remove(client.Peer)) return;
-        if (client.Introduction is { } introduction && IsConnected(introduction.Host))
-            Send(introduction.Host, new IntroductionFinished(introduction.Id, false));
+        if (client.Introduction is { } introduction) {
+            QueueDeparture(introduction.Host, introduction.Id);
+            if (IsConnected(introduction.Host))
+                Send(introduction.Host, new IntroductionFinished(introduction.Id, false));
+        }
         client.Introduction = null;
 
         if (client.Ticket?.Role != ConnectionRole.Host) return;
@@ -273,15 +299,6 @@ public sealed class DiscoveryServer {
         }
         network.Stop();
         Log("Discovery stopped.");
-    }
-
-    private static bool TryLocalEndpoint(NetworkEndpoint? value, out IPEndPoint? endpoint) {
-        endpoint = null;
-        if (value == null || value.Port is < 1 or > 65535 || !IPAddress.TryParse(value.Host, out var address)
-            || address.AddressFamily != AddressFamily.InterNetwork || address.Equals(IPAddress.Any)
-            || address.Equals(IPAddress.Broadcast) || address.GetAddressBytes()[0] is >= 224) return false;
-        endpoint = new IPEndPoint(address, value.Port);
-        return true;
     }
 
     private static void Log(string message) => Console.WriteLine($"{DateTimeOffset.UtcNow:O} [Discovery] {message}");

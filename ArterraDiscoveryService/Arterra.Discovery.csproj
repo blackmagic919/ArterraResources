@@ -9,9 +9,11 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../ArterraDiscoveryCDK/.cache/litenetlib/LiteNetLib/LiteNetLib.csproj" />
+    <PackageReference Include="FluentValidation" Version="12.2.0" />
     <PackageReference Include="AWSSDK.DynamoDBv2" Version="4.0.107.3" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="../ArterraGameService/Validators/DiscoveryValidators.cs" Link="Validators/DiscoveryValidators.cs" />
     <Compile Include="../ArterraGameService/Schemas/ConnectionSchemas.cs" Link="Schemas/ConnectionSchemas.cs" />
     <Compile Include="../ArterraGameService/Schemas/NetworkEndpoint.cs" Link="Schemas/NetworkEndpoint.cs" />
     <Compile Include="../ArterraGameService/Storage/IConnectionTicketStore.cs" Link="Authentication/IConnectionTicketStore.cs" />

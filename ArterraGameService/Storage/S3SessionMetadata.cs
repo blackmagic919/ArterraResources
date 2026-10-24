@@ -1,3 +1,4 @@
+using Arterra.Game.Validators;
 using Arterra.Game.Handlers;
 using Arterra.Game.Schemas;
 using System.Net;
@@ -18,7 +19,7 @@ public sealed class S3SessionMetadata(IAmazonS3 storage, string bucket) : ISessi
     public async Task PublishAsync(Guid id, CancellationToken cancel) {
         try {
             using var metadata = await storage.GetObjectAsync(bucket, $"uploads/{id}/metadata.json", cancel);
-            if (metadata.ContentLength is < 2 or > SessionService.MaximumMetadataBytes)
+            if (metadata.ContentLength is < 2 or > CreateSessionValidator.MaximumMetadataBytes)
                 throw new SessionRequestException(400, "Metadata exceeds its permitted size.");
 
             try {
@@ -30,7 +31,7 @@ public sealed class S3SessionMetadata(IAmazonS3 storage, string bucket) : ISessi
             }
 
             var chunk = await storage.GetObjectMetadataAsync(bucket, $"uploads/{id}/display-chunk.bin", cancel);
-            if (chunk.ContentLength is < 1 or > SessionService.MaximumChunkBytes)
+            if (chunk.ContentLength is < 1 or > CreateSessionValidator.MaximumChunkBytes)
                 throw new SessionRequestException(400, "Display chunk exceeds its permitted size.");
 
             // Copy only the exact objects just verified. Upload URLs can never overwrite published objects.

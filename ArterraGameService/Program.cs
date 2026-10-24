@@ -1,3 +1,4 @@
+using Arterra.Game.Validators;
 using Arterra.Game.Routing;
 using Arterra.Game.Authentication;
 using Arterra.Game.Handlers;
@@ -7,6 +8,7 @@ using Arterra.Game.Storage;
 using Amazon.DynamoDBv2;
 using Amazon.S3;
 using Microsoft.AspNetCore.Authentication;
+using FluentValidation;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddAWSLambdaHosting(LambdaEventSource.HttpApi);
@@ -15,11 +17,15 @@ builder.Services.AddSingleton<IAmazonDynamoDB>(_ => new AmazonDynamoDBClient());
 builder.Services.AddSingleton<IAmazonS3>(_ => new AmazonS3Client());
 builder.Services.AddHttpClient("Unity", client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddSingleton<IIdentityProvider>(services => new UnityIdentityProvider(
-    services.GetRequiredService<IHttpClientFactory>().CreateClient("Unity"), Required("UNITY_PROJECT_ID")));
+    services.GetRequiredService<IHttpClientFactory>().CreateClient("Unity"), Required("UNITY_PROJECT_ID"), services.GetRequiredService<IValidator<UnityCredential>>()));
 builder.Services.AddSingleton<IIdentityStore>(services => new DynamoIdentityStore(
     services.GetRequiredService<IAmazonDynamoDB>(), Required("IDENTITY_TABLE")));
 builder.Services.AddSingleton<ILoginTokenStore>(services => new DynamoLoginTokenStore(
     services.GetRequiredService<IAmazonDynamoDB>(), Required("LOGIN_TABLE")));
+builder.Services.AddSingleton<IValidator<LoginRequest>, LoginRequestValidator>();
+builder.Services.AddSingleton<IValidator<UnityCredential>, UnityCredentialValidator>();
+builder.Services.AddSingleton<IValidator<CreateSessionRequest>, CreateSessionValidator>();
+builder.Services.AddSingleton<IValidator<SessionQuery>, SessionQueryValidator>();
 builder.Services.AddSingleton<LoginService>();
 builder.Services.AddSingleton<ISessionStore>(services => new DynamoSessionStore(
     services.GetRequiredService<IAmazonDynamoDB>(), Required("SESSION_TABLE"), Required("METADATA_BUCKET"), services.GetRequiredService<TimeProvider>()));
